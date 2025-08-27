@@ -1,0 +1,56 @@
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: logging
+  namespace: openshift-logging
+spec:
+  managementState: Managed
+  outputs:
+    # Application logs output
+    - name: loki-application
+      type: loki
+      loki:
+        url: https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080/api/logs/v1/application/loki/api/v1/push
+      tls:
+        insecureSkipVerify: true
+
+    # Infrastructure logs output
+    - name: loki-infrastructure
+      type: loki
+      loki:
+        url: https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080/api/logs/v1/infrastructure/loki/api/v1/push
+      tls:
+        insecureSkipVerify: true
+
+    # Audit logs output
+    - name: loki-audit
+      type: loki
+      loki:
+        url: https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080/api/logs/v1/audit/loki/api/v1/push
+      tls:
+        insecureSkipVerify: true
+
+  pipelines:
+    # Send application logs to application tenant
+    - name: application-to-loki
+      inputRefs:
+        - application
+      outputRefs:
+        - loki-application
+
+    # Send infrastructure logs to infrastructure tenant
+    - name: infrastructure-to-loki
+      inputRefs:
+        - infrastructure
+      outputRefs:
+        - loki-infrastructure
+
+    # Send audit logs to audit tenant
+    - name: audit-to-loki
+      inputRefs:
+        - audit
+      outputRefs:
+        - loki-audit
+
+  serviceAccount:
+    name: collector

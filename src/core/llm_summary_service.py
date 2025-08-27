@@ -14,10 +14,11 @@ from datetime import datetime
 from .llm_client import summarize_with_llm
 from .response_validator import ResponseType
 from .config import CHAT_SCOPE_FLEET_WIDE, FLEET_WIDE_DISPLAY
+from .loki_service import get_recent_logs_summary, correlate_logs_with_alert
 
-def generate_llm_summary(question: str, thanos_data: Dict[str, Any], model_id: str, api_key: str, namespace: str) -> str:
+def generate_llm_summary(question: str, thanos_data: Dict[str, Any], model_id: str, api_key: str, namespace: str, include_logs: bool = True) -> str:
     """
-    Generate LLM summary from Thanos data
+    Generate LLM summary from Thanos data with optional log correlation
     """
     try:
         print(f"🧠 Generating LLM summary for: {question}")
@@ -36,6 +37,18 @@ def generate_llm_summary(question: str, thanos_data: Dict[str, Any], model_id: s
             scope = CHAT_SCOPE_FLEET_WIDE if (namespace == "" or namespace == FLEET_WIDE_DISPLAY) else f"namespace '{namespace}'"
             if alert_infos:
                 alert_analysis = generate_alert_analysis_with_llm(alert_infos, namespace, model_id=model_id, api_key=api_key)
+                
+                # Add log correlation for alerts if enabled and namespace is specific
+                if include_logs and namespace and namespace != FLEET_WIDE_DISPLAY:
+                    try:
+                        print(f"🔍 Adding log correlation for alerts in namespace: {namespace}")
+                        log_summary = get_recent_logs_summary(namespace, hours=1)
+                        if log_summary.get("insights"):
+                            log_insights = "\n".join(log_summary["insights"])
+                            alert_analysis += f"\n\n📝 **LOG CORRELATION (Last 1 hour)**\n{log_insights}"
+                    except Exception as e:
+                        print(f"⚠️ Failed to correlate logs: {e}")
+                
                 return f"🚨 **TOTAL OF {len(alert_infos)} ALERT(S) FOUND IN {scope.upper()}**\n\n{alert_analysis}"
             else:
                 return f"✅ No alerts currently firing in {scope}. All systems appear to be operating normally."
@@ -70,12 +83,24 @@ def generate_llm_summary(question: str, thanos_data: Dict[str, Any], model_id: s
         # Build the prompt
         context = "\n".join(context_parts)
         
+        # Add log correlation for regular metrics if enabled and namespace is specific
+        log_context = ""
+        if include_logs and namespace and namespace != FLEET_WIDE_DISPLAY:
+            try:
+                print(f"🔍 Adding log correlation for metrics in namespace: {namespace}")
+                log_summary = get_recent_logs_summary(namespace, hours=1)
+                if log_summary.get("insights"):
+                    log_insights = "\n".join(log_summary["insights"])
+                    log_context = f"\n\nRecent Log Analysis:\n{log_insights}"
+            except Exception as e:
+                print(f"⚠️ Failed to correlate logs: {e}")
+        
         prompt = f"""You are a senior Site Reliability Engineer (SRE) analyzing metrics for namespace: {namespace}.
 
 Question: {question}
 
 Metrics Data:
-{context}
+{context}{log_context}
 
 Provide ONLY a structured summary in this exact format (no additional text or instructions):
 Current value: [value]

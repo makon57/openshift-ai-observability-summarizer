@@ -249,9 +249,10 @@ def chat_metrics(req: ChatMetricsRequest):
         # Step 3: Query Thanos with PromQL
         thanos_data = query_thanos_with_promql(promql_queries, start_ts, end_ts)
         
-        # Step 4: Send results to LLM for summary
+        # Step 4: Send results to LLM for summary with log correlation
         summary_namespace = FLEET_WIDE_DISPLAY if is_fleet_wide else req.namespace
-        summary = generate_llm_summary(req.question, thanos_data, req.summarize_model_id, req.api_key, summary_namespace)
+        # Enable log correlation for infrastructure-first observability
+        summary = generate_llm_summary(req.question, thanos_data, req.summarize_model_id, req.api_key, summary_namespace, include_logs=True)
         # Step 5: Return summary for UI
         # Find the most relevant PromQL for the question (not just the first one)
         primary_promql = find_primary_promql_for_question(req.question, promql_queries)
