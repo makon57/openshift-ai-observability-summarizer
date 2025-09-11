@@ -1,0 +1,77 @@
+{{- if .Values.clusterLogging.logForwarder.enabled }}
+# ClusterLogForwarder to send logs to LokiStack
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: {{ .Values.lokiStack.name }}-forwarder
+  namespace: openshift-logging
+  labels:
+    {{- include "loki-stack.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  managementState: Managed
+  serviceAccount:
+    name: {{ .Values.clusterLogging.logForwarder.serviceAccount.name }}
+  outputs:
+    - name: loki-infrastructure
+      type: lokiStack
+      lokiStack:
+        target:
+          name: {{ .Values.clusterLogging.logForwarder.target.name }}
+          namespace: {{ .Values.clusterLogging.logForwarder.target.namespace }}
+        authentication:
+          token:
+            from: serviceAccount
+      {{- if .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
+      tls:
+        insecureSkipVerify: {{ .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
+      {{- end }}
+    - name: loki-application
+      type: lokiStack
+      lokiStack:
+        target:
+          name: {{ .Values.clusterLogging.logForwarder.target.name }}
+          namespace: {{ .Values.clusterLogging.logForwarder.target.namespace }}
+        authentication:
+          token:
+            from: serviceAccount
+      {{- if .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
+      tls:
+        insecureSkipVerify: {{ .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
+      {{- end }}
+    - name: loki-audit
+      type: lokiStack
+      lokiStack:
+        target:
+          name: {{ .Values.clusterLogging.logForwarder.target.name }}
+          namespace: {{ .Values.clusterLogging.logForwarder.target.namespace }}
+        authentication:
+          token:
+            from: serviceAccount
+      {{- if .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
+      tls:
+        insecureSkipVerify: {{ .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
+      {{- end }}
+  pipelines:
+    - name: infrastructure-logs
+      inputRefs:
+        - infrastructure
+      outputRefs:
+        - loki-infrastructure
+      filterRefs: []
+    - name: application-logs
+      inputRefs:
+        - application
+      outputRefs:
+        - loki-application
+      filterRefs: []
+    - name: audit-logs
+      inputRefs:
+        - audit
+      outputRefs:
+        - loki-audit
+      filterRefs: []
+{{- end }}

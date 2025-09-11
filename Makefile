@@ -138,6 +138,11 @@ helm_tempo_args = \
     --set minio.s3.accessKeySecret=$(MINIO_PASSWORD) \
     --set minio.s3.bucket=tempo
 
+helm_loki_args = \
+	--set minio.s3.accessKeyId=$(MINIO_USER) \
+    --set minio.s3.accessKeySecret=$(MINIO_PASSWORD) \
+    --set minio.s3.bucket=loki
+
 .PHONY: help
 help:
 	@echo "OpenShift AI Observability Summarizer - Build & Deploy"
@@ -291,6 +296,37 @@ depend:
 
 	@echo "Updating Helm dependencies (for $(MINIO_CHART))..."
 	@cd deploy/helm && helm dependency update $(MINIO_CHART_PATH) || exit 1
+
+
+.PHONY: install-metric-mcp
+install-metric-mcp: namespace
+	@echo "Installing MCP by generating dynamic model configuration for $(LLM)"
+	@$(MAKE) generate-model-config LLM=$(LLM) > /dev/null 2>&1
+
+	@echo "Checking ClusterRole grafana-prometheus-reader..."
+	@(echo "modelConfig:"; cat $(GEN_MODEL_CONFIG_PREFIX)-final_config.json | sed 's/^/  /') > $(GEN_MODEL_CONFIG_PREFIX)-for_helm.yaml; \
+	if oc get clusterrole grafana-prometheus-reader > /dev/null 2>&1; then \
+		echo "ClusterRole exists. Deploying without creating Grafana role..."; \
+		cd deploy/helm && helm upgrade --install $(METRICS_API_RELEASE_NAME) $(METRICS_API_CHART_PATH) -n $(NAMESPACE) \
+			--set rbac.createGrafanaRole=false \
+			--set image.repository=$(METRICS_API_IMAGE) \
+			--set image.tag=$(VERSION) \
+			--set-json listModels.modelId.enabledModelIds='$(LLM_JSON)' \
+			-f $(GEN_MODEL_CONFIG_PREFIX)-for_helm.yaml; \
+	else \
+		echo "ClusterRole does not exist. Deploying and creating Grafana role..."; \
+		cd deploy/helm && helm upgrade --install $(METRICS_API_RELEASE_NAME) $(METRICS_API_CHART_PATH) -n $(NAMESPACE) \
+			--set rbac.createGrafanaRole=true \
+			--set image.repository=$(METRICS_API_IMAGE) \
+			--set image.tag=$(VERSION) \
+			--set-json listModels.modelId.enabledModelIds='$(LLM_JSON)' \
+			-f $(GEN_MODEL_CONFIG_PREFIX)-for_helm.yaml; \
+	fi
+
+	@echo "Files used for Metric MCP deployment:"
+	@echo "  - $(GEN_MODEL_CONFIG_PREFIX)-for_helm.yaml"
+	@echo "  - $(GEN_MODEL_CONFIG_PREFIX)-final_config.json"
+	@echo "  - $(GEN_MODEL_CONFIG_PREFIX)-list_models_output.txt"
 
 
 .PHONY: install-metric-ui
@@ -509,7 +545,7 @@ clean:
 
 # Run tests
 .PHONY: test
-test:	
+test:
 	@echo "🧪 Running tests with coverage..."
 	@uv sync --group test
 	@uv run pytest -v --cov=src --cov-report=html --cov-report=term
@@ -630,7 +666,7 @@ create-secret: namespace
 	@echo "Secret 'alerts-secrets' created/updated in namespace $(NAMESPACE)."
 
 .PHONY: install-alerts
-install-alerts: patch-config create-secret 
+install-alerts: patch-config create-secret
 	@echo "Installing/Upgrading Helm chart $(ALERTING_RELEASE_NAME) in namespace $(NAMESPACE)..."
 	@cd deploy/helm && helm upgrade --install $(ALERTING_RELEASE_NAME) ./alerting --namespace $(NAMESPACE) \
 		--set image.repository=$(METRICS_ALERTING_IMAGE) \
@@ -660,7 +696,7 @@ validate-llm:
 
 .PHONY: install-observability
 install-observability:
-	@echo "→ Checking if OpenTelemetry Collector and Tempo already exist in namespace $(OBSERVABILITY_NAMESPACE)"
+	@echo "→ Checking if OpenTelemetry Collector, Tempo, and Loki already exist in namespace $(OBSERVABILITY_NAMESPACE)"
 	@if helm list -n $(OBSERVABILITY_NAMESPACE) 2>/dev/null | grep -q "^tempo\s"; then \
 		echo "  → TempoStack already installed, skipping..."; \
 	else \
@@ -680,6 +716,17 @@ install-observability:
 			--namespace $(OBSERVABILITY_NAMESPACE) \
 			--create-namespace \
 			--set global.namespace=$(OBSERVABILITY_NAMESPACE); \
+	fi
+
+	@if helm list -n $(OBSERVABILITY_NAMESPACE) 2>/dev/null | grep -q "^loki-stack\s"; then \
+			echo "  → LokiStack already installed, skipping..."; \
+	else \
+		echo "Installing LokiStack in namespace $(OBSERVABILITY_NAMESPACE)"; \
+		cd deploy/helm && helm upgrade --install loki-stack ./observability/loki \
+			--namespace $(OBSERVABILITY_NAMESPACE) \
+			--create-namespace \
+			--set global.namespace=$(OBSERVABILITY_NAMESPACE) \
+			$(helm_loki_args); \
 	fi
 
 .PHONY: install-observability-stack
@@ -707,9 +754,11 @@ uninstall-observability:
 	@echo "Uninstalling TempoStack and Otel Collector in namespace $(OBSERVABILITY_NAMESPACE)"
 	@helm uninstall tempo -n $(OBSERVABILITY_NAMESPACE)
 	@helm uninstall otel-collector -n $(OBSERVABILITY_NAMESPACE)
+	@helm uninstall loki-stack -n $(OBSERVABILITY_NAMESPACE)
 
-	@echo "Removing TempoStack PVCs from $(OBSERVABILITY_NAMESPACE)"
+	@echo "Removing TempoStack & LokiStack PVCs from $(OBSERVABILITY_NAMESPACE)"
 	- @oc delete pvc -n $(OBSERVABILITY_NAMESPACE) -l app.kubernetes.io/name=tempo --timeout=30s ||:
+	- @oc delete pvc -n $(OBSERVABILITY_NAMESPACE) -l app.kubernetes.io/name=loki-stack --timeout=30s ||:
 
 .PHONY: uninstall-observability-stack
 uninstall-observability-stack: remove-tracing uninstall-observability uninstall-minio

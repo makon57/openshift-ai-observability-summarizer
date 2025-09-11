@@ -1,0 +1,158 @@
+# Default values for loki-stack
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Global configuration
+global:
+  namespace: observability-hub
+
+# LokiStack configuration
+lokiStack:
+  name: logging-loki
+  size: 1x.small # Options: 1x.extra-small, 1x.small, 1x.medium
+  storageClassName: "gp3"
+
+  # Tenant configuration - OpenShift Logging mode for proper RBAC
+  tenants:
+    mode: openshift-logging # Use openshift-logging mode for RBAC integration
+
+  # Retention and limits configuration
+  limits:
+    global:
+      retention:
+        days: 7 # 7 days default
+      ingestionRateLimit: 10485760 # 10MB in bytes per second
+      ingestionBurstLimit: 20971520 # 20MB in bytes
+      queriesMaxEntriesLimitPerQuery: 50000
+
+    # Per-tenant retention policies
+    tenants:
+      audit:
+        retention:
+          days: 3 # 3 days for high-volume audit logs
+        ingestionRateLimit: 5242880 # 5MB in bytes per second
+      application:
+        retention:
+          days: 7 # 7 days
+        ingestionRateLimit: 3145728 # 3MB in bytes per second
+      infrastructure:
+        retention:
+          days: 14 # 14 days
+        ingestionRateLimit: 5242880 # 5MB in bytes per second
+
+  # Template configuration
+  template:
+    distributor:
+      replicas: 1 # Reduced for resource efficiency
+    ingester:
+      replicas: 1
+    querier:
+      replicas: 1
+    queryFrontend:
+      replicas: 1
+    gateway:
+      replicas: 1
+    indexGateway:
+      replicas: 1
+    compactor:
+      replicas: 1
+
+# MinIO storage configuration (reuses existing shared MinIO)
+minio:
+  # Reference to existing shared MinIO service
+  shared:
+    serviceName: minio-observability-storage
+    namespace: observability-hub
+    ports:
+      api: 9000
+      console: 9001
+
+  # S3 configuration for Loki (matches existing Tempo credentials)
+  s3:
+    accessKeyId: "admin"
+    accessKeySecret: "minio123"
+    bucket: loki
+    endpoint: http://minio-observability-storage.observability-hub.svc.cluster.local:9000
+
+# RBAC configuration
+rbac:
+  create: true
+
+  # Service accounts for log collection
+  serviceAccounts:
+    collector:
+      name: collector
+      create: false # Use existing from OpenShift Logging
+    logForwarder:
+      name: loki-log-forwarder
+      create: true
+
+  # Cluster roles for tenant access
+  clusterRoles:
+    tenantLogs:
+      create: true
+
+# Security configuration
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Additional labels and annotations
+commonLabels: {}
+commonAnnotations: {}
+
+# Cluster logging configuration
+clusterLogging:
+  enabled: true
+
+  # ClusterLogForwarder configuration
+  logForwarder:
+    enabled: true
+
+    # Service account for log collection
+    serviceAccount:
+      name: collector
+      create: false # Use existing service account from OpenShift Logging
+
+    # Target LokiStack configuration
+    target:
+      name: logging-loki
+      namespace: observability-hub
+
+    # TLS configuration for secure communication
+    tls:
+      insecureSkipVerify: true # For internal cluster communication
+
+    # Batch configuration for log forwarding
+    batch:
+      maxSize: 1MB
+      maxRecords: 1000
+      timeout: 5s
+
+    # Rate limiting per tenant
+    rateLimiting:
+      enabled: true
+      audit:
+        maxLogsPerSecond: 1000
+      application:
+        maxLogsPerSecond: 500
+      infrastructure:
+        maxLogsPerSecond: 500
