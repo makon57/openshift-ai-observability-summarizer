@@ -1,4 +1,9 @@
 # Default values for loki-stack
+# This configuration reflects the production-tested setup that resolved:
+# - MinIO storage crisis (99% -> 69% usage)
+# - Ingester ring issues (2 replicas for HA)
+# - Namespace filtering for sustainable log volume
+# - Optimized retention policies
 replicaCount: 1
 
 nameOverride: ""
@@ -22,24 +27,24 @@ lokiStack:
   limits:
     global:
       retention:
-        days: 7 # 7 days default
+        days: 3 # Reduced from 7 to 3 days default
       ingestionRateLimit: 10485760 # 10MB in bytes per second
       ingestionBurstLimit: 20971520 # 20MB in bytes
       queriesMaxEntriesLimitPerQuery: 50000
 
-    # Per-tenant retention policies
+    # Per-tenant retention policies (reduced to save storage)
     tenants:
       audit:
         retention:
-          days: 3 # 3 days for high-volume audit logs
+          days: 1 # Reduced from 3 to 1 day for high-volume audit logs
         ingestionRateLimit: 5242880 # 5MB in bytes per second
       application:
         retention:
-          days: 7 # 7 days
+          days: 3 # Reduced from 7 to 3 days
         ingestionRateLimit: 3145728 # 3MB in bytes per second
       infrastructure:
         retention:
-          days: 14 # 14 days
+          days: 7 # Reduced from 14 to 7 days
         ingestionRateLimit: 5242880 # 5MB in bytes per second
 
   # Template configuration
@@ -47,7 +52,7 @@ lokiStack:
     distributor:
       replicas: 1 # Reduced for resource efficiency
     ingester:
-      replicas: 1
+      replicas: 2 # Set to 2 to avoid ring issues and ensure high availability
     querier:
       replicas: 1
     queryFrontend:
@@ -140,6 +145,23 @@ clusterLogging:
     # TLS configuration for secure communication
     tls:
       insecureSkipVerify: true # For internal cluster communication
+
+    # Input configuration for log filtering
+    inputs:
+      application:
+        # Collect from all namespaces (no filtering)
+        allNamespaces: true
+        customName: application-all-namespaces
+      infrastructure:
+        # Filter infrastructure logs to reduce volume
+        filtered: true
+        customName: infrastructure-minimal
+        sources:
+          - node # Node-level infrastructure logs
+          - container # Container runtime logs
+      audit:
+        # Audit logs disabled due to high volume (can be re-enabled)
+        enabled: false
 
     # Batch configuration for log forwarding
     batch:

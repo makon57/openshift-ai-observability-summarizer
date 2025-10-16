@@ -15,6 +15,23 @@ spec:
   managementState: Managed
   serviceAccount:
     name: {{ .Values.clusterLogging.logForwarder.serviceAccount.name }}
+  {{- if or .Values.clusterLogging.logForwarder.inputs.application.allNamespaces .Values.clusterLogging.logForwarder.inputs.infrastructure.filtered }}
+  inputs:
+  {{- if .Values.clusterLogging.logForwarder.inputs.application.allNamespaces }}
+  - name: {{ .Values.clusterLogging.logForwarder.inputs.application.customName }}
+    type: application
+    application: {} # Empty spec means all namespaces
+  {{- end }}
+  {{- if .Values.clusterLogging.logForwarder.inputs.infrastructure.filtered }}
+  - name: {{ .Values.clusterLogging.logForwarder.inputs.infrastructure.customName }}
+    type: infrastructure
+    infrastructure:
+      sources:
+      {{- range .Values.clusterLogging.logForwarder.inputs.infrastructure.sources }}
+      - {{ . }}
+      {{- end }}
+  {{- end }}
+  {{- end }}
   outputs:
     - name: loki-infrastructure
       type: lokiStack
@@ -42,6 +59,7 @@ spec:
       tls:
         insecureSkipVerify: {{ .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
       {{- end }}
+    {{- if .Values.clusterLogging.logForwarder.inputs.audit.enabled }}
     - name: loki-audit
       type: lokiStack
       lokiStack:
@@ -55,23 +73,44 @@ spec:
       tls:
         insecureSkipVerify: {{ .Values.clusterLogging.logForwarder.tls.insecureSkipVerify }}
       {{- end }}
+    {{- end }}
   pipelines:
+    {{- if .Values.clusterLogging.logForwarder.inputs.infrastructure.filtered }}
+    - name: infrastructure-logs
+      inputRefs:
+        - {{ .Values.clusterLogging.logForwarder.inputs.infrastructure.customName }}
+      outputRefs:
+        - loki-infrastructure
+      filterRefs: []
+    {{- else }}
     - name: infrastructure-logs
       inputRefs:
         - infrastructure
       outputRefs:
         - loki-infrastructure
       filterRefs: []
+    {{- end }}
+    {{- if .Values.clusterLogging.logForwarder.inputs.application.allNamespaces }}
+    - name: application-logs
+      inputRefs:
+        - {{ .Values.clusterLogging.logForwarder.inputs.application.customName }}
+      outputRefs:
+        - loki-application
+      filterRefs: []
+    {{- else }}
     - name: application-logs
       inputRefs:
         - application
       outputRefs:
         - loki-application
       filterRefs: []
+    {{- end }}
+    {{- if .Values.clusterLogging.logForwarder.inputs.audit.enabled }}
     - name: audit-logs
       inputRefs:
         - audit
       outputRefs:
         - loki-audit
       filterRefs: []
+    {{- end }}
 {{- end }}
