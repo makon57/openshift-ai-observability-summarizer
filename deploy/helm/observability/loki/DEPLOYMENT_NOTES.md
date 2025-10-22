@@ -4,6 +4,8 @@
 
 This Helm chart contains the **production-tested configuration** that successfully resolved multiple critical issues encountered during deployment in October 2025. This guide ensures you can replicate the exact working setup.
 
+**✅ NEW in v2.1**: The Helm chart is now **complete and self-contained**, automatically creating all necessary components including LokiStack deployment, RBAC, and log forwarding configuration. No manual setup steps required!
+
 ## ✅ Current Working Configuration
 
 ### LokiStack Configuration
@@ -46,71 +48,20 @@ This Helm chart contains the **production-tested configuration** that successful
 
 1. **OpenShift Logging Operator** installed and configured
 2. **Shared MinIO instance** running in `observability-hub` namespace
-3. **Collector service account and RBAC** set up in `openshift-logging` namespace
-4. **Sufficient storage** - recommend 100GB+ for MinIO
+3. **Sufficient storage** - recommend 100GB+ for MinIO
 
-### OpenShift Logging Setup (Required First)
+**Note**: Collector service account and RBAC are now automatically created by the Helm chart.
 
-Before deploying Loki, you must set up the collector service account and RBAC:
+### OpenShift Logging Setup (Automated by Helm Chart)
 
-#### Create Collector Service Account
+**✅ NEW**: The Helm chart now automatically creates all necessary RBAC components, including:
 
-```bash
-# Create the collector service account
-oc create serviceaccount collector -n openshift-logging
+- **Collector Service Account** in `openshift-logging` namespace
+- **ClusterRoles** for log collection permissions
+- **ClusterRoleBindings** for proper access
+- **MCP Server RBAC** for log querying
 
-# Create ClusterRoles for log collection
-cat <<EOF | oc apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: collect-application-logs
-rules:
-- apiGroups: [""]
-  resources: ["pods", "namespaces"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["apps"]
-  resources: ["replicasets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["pods/log"]
-  verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: collect-infrastructure-logs
-rules:
-- apiGroups: [""]
-  resources: ["nodes", "nodes/log", "namespaces", "pods", "pods/log"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["events"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: logging-collector-logs-writer
-rules:
-- apiGroups: ["loki.grafana.com"]
-  resources: ["application", "infrastructure", "audit"]
-  verbs: ["create"]
-EOF
-
-# Bind the roles to collector service account
-oc create clusterrolebinding logging-collector:collect-application \
-  --clusterrole=collect-application-logs \
-  --serviceaccount=openshift-logging:collector
-
-oc create clusterrolebinding logging-collector:collect-infrastructure \
-  --clusterrole=collect-infrastructure-logs \
-  --serviceaccount=openshift-logging:collector
-
-oc create clusterrolebinding logging-collector-logs-writer \
-  --clusterrole=logging-collector-logs-writer \
-  --serviceaccount=openshift-logging:collector
-```
+**No manual RBAC setup required** - the chart handles everything automatically!
 
 ### Step 1: Verify Prerequisites
 
@@ -121,7 +72,7 @@ oc get csv -n openshift-logging | grep logging
 # Check MinIO instance
 oc get pods -n observability-hub | grep minio
 
-# Check collector service account
+# Check collector service account (will be created by Helm chart)
 oc get sa collector -n openshift-logging
 
 # Check storage availability
@@ -131,17 +82,17 @@ kubectl exec -n observability-hub minio-observability-storage-0 -- df -h | grep 
 ### Step 2: Deploy Loki Stack
 
 ```bash
-# Option 1: Deploy with automatic collector setup (recommended for new deployments)
+# Deploy the complete Loki stack (includes LokiStack, RBAC, and log forwarding)
 helm install loki-stack deploy/helm/observability/loki \
   --namespace observability-hub \
-  --create-namespace \
-  --set rbac.collector.create=true
+  --create-namespace
 
-# Option 2: Deploy assuming collector SA already exists
-helm install loki-stack deploy/helm/observability/loki \
-  --namespace observability-hub \
-  --create-namespace \
-  --set rbac.collector.create=false
+# The chart automatically creates:
+# - LokiStack instance with MinIO storage
+# - Collector service account and RBAC in openshift-logging namespace
+# - ClusterLogForwarder for log collection
+# - MCP server RBAC for log querying
+# - MinIO credentials secret
 
 # Wait for LokiStack to be ready
 kubectl wait --for=condition=Ready lokistack/logging-loki -n observability-hub --timeout=600s
@@ -421,10 +372,12 @@ kubectl auth can-i create application.loki.grafana.com --as=system:serviceaccoun
 kubectl auth can-i get pods --as=system:serviceaccount:openshift-logging:collector
 kubectl auth can-i get nodes --as=system:serviceaccount:openshift-logging:collector
 
-# If collector SA missing, create it:
-oc create serviceaccount collector -n openshift-logging
+# If collector SA missing, redeploy the Helm chart:
+helm upgrade loki-stack deploy/helm/observability/loki \
+  --namespace observability-hub \
+  --set rbac.collector.create=true
 
-# If RBAC missing, apply the ClusterRoles and bindings from the setup section above
+# The chart will automatically create all necessary RBAC components
 ```
 
 ## 📈 Performance Characteristics
@@ -456,6 +409,22 @@ After implementing all fixes:
 
 ---
 
-**Last Updated**: October 16, 2025
-**Configuration Version**: v2.0 (Production Tested)
+## 📦 Helm Chart Components
+
+The complete Loki stack now includes these templates:
+
+- **`Chart.yaml`** - Helm chart metadata and dependencies
+- **`templates/_helpers.tpl`** - Template helper functions for consistent labeling
+- **`templates/lokistack.yaml`** - LokiStack CRD deployment with multitenant configuration
+- **`templates/minio-secrets.yaml`** - MinIO S3 credentials for storage backend
+- **`templates/clusterlogforwarder.yaml`** - Log forwarding configuration
+- **`templates/rbac.yaml`** - Core RBAC for log collection service accounts
+- **`templates/collector-rbac.yaml`** - Collector service account and permissions
+- **`templates/mcp-rbac.yaml`** - MCP server access to collector tokens
+- **`values.yaml`** - Complete configuration with MCP server integration
+
+---
+
+**Last Updated**: October 22, 2025
+**Configuration Version**: v2.1 (Complete Helm Chart)
 **Tested Environment**: OpenShift 4.x with OpenShift Logging 5.x
