@@ -37,7 +37,7 @@ class ObservabilityMCPServer:
         )
         from .tools.prometheus_tools import (
             search_metrics,                    # Search metrics by pattern
-            get_metric_metadata,              # Get metric metadata  
+            get_metric_metadata,              # Get metric metadata
             get_label_values,                 # Get label values
             execute_promql,                   # Execute PromQL queries
             explain_results,                  # Explain query results
@@ -51,6 +51,12 @@ class ObservabilityMCPServer:
             get_trace_details_tool,
             chat_tempo_tool,
         )
+        from .tools.loki import (
+            query_loki_tool,
+            search_logs_tool,
+            analyze_error_logs_tool,
+            chat_loki_tool,
+        )
 
         # Register vLLM tools
         self.mcp.tool()(list_models)
@@ -63,7 +69,7 @@ class ObservabilityMCPServer:
         self.mcp.tool()(get_gpu_info)
         self.mcp.tool()(get_deployment_info)
         self.mcp.tool()(chat_vllm)
-        
+
         # Register OpenShift tools
         self.mcp.tool()(analyze_openshift)
         self.mcp.tool()(list_openshift_metric_groups)
@@ -85,3 +91,9 @@ class ObservabilityMCPServer:
         self.mcp.tool()(query_tempo_tool)
         self.mcp.tool()(get_trace_details_tool)
         self.mcp.tool()(chat_tempo_tool)
+
+        # Register Loki log analysis tools
+        self.mcp.tool()(query_loki_tool)
+        self.mcp.tool()(search_logs_tool)
+        self.mcp.tool()(analyze_error_logs_tool)
+        self.mcp.tool()(chat_loki_tool)

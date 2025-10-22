@@ -160,7 +160,7 @@ class MCPClientHelper:
             response_text = extract_text_from_mcp_result(result)
             if not response_text:
                 return []
-            
+
             # Normalize escaped newlines ("\\n") to real newlines so bullets split correctly
             response_text = response_text.replace("\\n", "\n")
             if item_prefix in response_text:
@@ -197,10 +197,10 @@ mcp_client = MCPClientHelper()
 
 def extract_text_from_mcp_result(result: Any) -> Optional[str]:
     """Helper function to extract text from MCP tool result.
-    
+
     Args:
         result: MCP tool result (typically a list with dict items)
-        
+
     Returns:
         Extracted text string, or None if extraction fails
     """
@@ -231,7 +231,7 @@ def extract_text_from_mcp_result(result: Any) -> Optional[str]:
 def check_mcp_response_for_errors(result: Any) -> Dict[str, Any]:
     """
     Check MCP response for structured errors and return error details if found.
-    
+
     Returns:
         Dict with error details if error found, empty dict otherwise
     """
@@ -248,46 +248,46 @@ def check_mcp_response_for_errors(result: Any) -> Dict[str, Any]:
 
 def is_double_encoded_mcp_response(parsed_json: Any) -> bool:
     """Check if the parsed JSON is a double-encoded MCP response.
-    
+
     A double-encoded MCP response is a list containing a dict with a 'text' key
     that contains another JSON string.
-    
+
     Args:
         parsed_json: The parsed JSON object to check
-        
+
     Returns:
         True if this appears to be a double-encoded MCP response
     """
     if not isinstance(parsed_json, list):
         return False
-        
+
     if len(parsed_json) == 0:
         return False
-        
+
     first_item = parsed_json[0]
     return isinstance(first_item, dict) and "text" in first_item
 
 
 def extract_from_double_encoded_response(parsed_json: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Extract content from a double-encoded MCP response.
-    
+
     Args:
         parsed_json: The list containing the double-encoded response
-        
+
     Returns:
         The extracted and parsed inner JSON, or None if extraction fails
     """
     try:
         inner_text = parsed_json[0]["text"]
         logger.debug(f"Found double-encoded response, trying to parse inner text: {inner_text[:100]}...")
-        
+
         inner_json = json.loads(inner_text)
         if isinstance(inner_json, dict):
             return inner_json
         else:
             logger.error(f"Inner JSON is not a dict: {type(inner_json)}")
             return None
-            
+
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse inner JSON from double-encoded response: {e}")
         return None
@@ -303,14 +303,14 @@ def get_namespaces_mcp() -> List[str]:
             st.sidebar.error("🌐 **CONNECTION_ERROR**: MCP server is not available")
             st.sidebar.info("💡 **How to fix**: Check if the MCP server is running")
             return []
-        
+
         result = mcp_client.call_tool_sync("list_namespaces")
-        
+
         error_details = parse_mcp_error(result)
         if error_details:
             display_mcp_error(error_details)
             return []
-        
+
         return mcp_client.parse_list_response(result)
     except Exception as e:
         logger.error(f"Error fetching namespaces via MCP: {e}")
@@ -325,14 +325,14 @@ def get_models_mcp() -> List[str]:
             st.sidebar.error("🌐 **CONNECTION_ERROR**: MCP server is not available")
             st.sidebar.info("💡 **How to fix**: Check if the MCP server is running")
             return []
-        
+
         result = mcp_client.call_tool_sync("list_models")
-        
+
         error_details = parse_mcp_error(result)
         if error_details:
             display_mcp_error(error_details)
             return []
-        
+
         return mcp_client.parse_list_response(result)
     except Exception as e:
         logger.error(f"Error fetching models via MCP: {e}")
@@ -349,20 +349,20 @@ def get_model_config_mcp() -> Dict[str, Any]:
             return {}
 
         result = mcp_client.call_tool_sync("get_model_config")
-        
+
         error_details = parse_mcp_error(result)
         if error_details:
             display_mcp_error(error_details)
             return {}
-        
+
         response_text = extract_text_from_mcp_result(result)
         if response_text:
             # Parse the MCP response text back into dict format
             return parse_model_config_text(response_text)
-        
+
         logger.warning("No response from MCP get_model_config tool")
         return {}
-        
+
     except Exception as e:
         logger.error(f"Error fetching model config via MCP: {e}")
         st.sidebar.error(f"❌ **INTERNAL_ERROR**: {str(e)}")
@@ -829,21 +829,21 @@ def parse_analyze_response(response_text: str) -> Dict[str, Any]:
 
 def parse_model_config_text(text: str) -> Dict[str, Any]:
     """Parse MCP get_model_config text response back into JSON dict format.
-    
+
     Input format:
         Available Model Config (3 total):
-        
+
         • meta-llama/Llama-3.2-3B-Instruct
           - external: False
           - requiresApiKey: False
           - serviceName: llama-3-2-3b-instruct
-        
+
         • google/gemini-2.5-flash
           - apiUrl: https://...
           - external: True
           - requiresApiKey: True
           ...
-    
+
     Output format:
         {
             "meta-llama/Llama-3.2-3B-Instruct": {
@@ -862,22 +862,22 @@ def parse_model_config_text(text: str) -> Dict[str, Any]:
                 text = parsed_json[0]["text"]
         except json.JSONDecodeError:
             pass  # Use original text
-        
+
         config = {}
         current_model = None
-        
+
         for line in text.split('\n'):
             line = line.strip()
             if not line:
                 continue
-                
+
             # Model name line starts with "• "
             if line.startswith("• "):
                 current_model = line[2:].strip()
                 if current_model:
                     config[current_model] = {}
                 continue
-                
+
             # Property line starts with "- "
             if current_model and line.startswith("- "):
                 prop_line = line[2:].strip()
@@ -885,7 +885,7 @@ def parse_model_config_text(text: str) -> Dict[str, Any]:
                     key, value = prop_line.split(": ", 1)
                     key = key.strip()
                     value = value.strip()
-                    
+
                     # Convert string values to appropriate types
                     if value.lower() == "true":
                         value = True
@@ -898,43 +898,212 @@ def parse_model_config_text(text: str) -> Dict[str, Any]:
                             value = json.loads(value.replace("'", '"'))
                         except:
                             pass  # Keep as string if JSON parsing fails
-                    
+
                     config[current_model][key] = value
-        
+
         return config
-        
+
     except Exception as e:
         logger.error(f"Error parsing model config text: {e}")
         return {}
 
 
+def chat_loki_mcp(question: str) -> Dict[str, Any]:
+    """
+    Chat with Loki logs using MCP client for conversational log analysis.
+    Similar to chat_tempo_mcp but for log data.
+    """
+    mcp_client = get_mcp_client()
+    if not mcp_client:
+        return {
+            "success": False,
+            "error": "MCP client not available. Please check MCP server connection."
+        }
+
+    try:
+        logger.debug(f"Calling chat_loki_tool with question: {question}")
+
+        result = mcp_client.call_tool_sync("chat_loki_tool", {
+            "question": question
+        })
+
+        logger.debug(f"chat_loki_tool result: {result}")
+
+        if result and len(result) > 0 and "text" in result[0]:
+            return {
+                "success": True,
+                "analysis": result[0]["text"],
+                "tool": "chat_loki_tool"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No analysis returned from Loki chat tool"
+            }
+
+    except Exception as e:
+        logger.error(f"Error calling chat_loki_tool: {e}")
+        return {
+            "success": False,
+            "error": f"Error calling Loki chat tool: {str(e)}"
+        }
+
+
+def analyze_error_logs_mcp(
+    namespace: str = None,
+    service_name: str = None,
+    start_ts: int = None,
+    end_ts: int = None
+) -> Dict[str, Any]:
+    """
+    Analyze error logs using MCP client.
+    """
+    mcp_client = get_mcp_client()
+    if not mcp_client:
+        return {
+            "success": False,
+            "error": "MCP client not available. Please check MCP server connection."
+        }
+
+    try:
+        # Convert timestamps to ISO format if provided
+        start_time = None
+        end_time = None
+
+        if start_ts and end_ts:
+            from datetime import datetime
+            start_time = datetime.fromtimestamp(start_ts).isoformat() + "Z"
+            end_time = datetime.fromtimestamp(end_ts).isoformat() + "Z"
+
+        params = {}
+        if namespace:
+            params["namespace"] = namespace
+        if service_name:
+            params["service_name"] = service_name
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
+
+        logger.debug(f"Calling analyze_error_logs_tool with params: {params}")
+
+        result = mcp_client.call_tool_sync("analyze_error_logs_tool", params)
+
+        logger.debug(f"analyze_error_logs_tool result: {result}")
+
+        if result and len(result) > 0 and "text" in result[0]:
+            return {
+                "success": True,
+                "analysis": result[0]["text"],
+                "tool": "analyze_error_logs_tool"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No analysis returned from error logs tool"
+            }
+
+    except Exception as e:
+        logger.error(f"Error calling analyze_error_logs_tool: {e}")
+        return {
+            "success": False,
+            "error": f"Error calling error logs analysis tool: {str(e)}"
+        }
+
+
+def search_logs_mcp(
+    search_terms: str,
+    namespace: str = None,
+    service_name: str = None,
+    log_level: str = None,
+    start_ts: int = None,
+    end_ts: int = None
+) -> Dict[str, Any]:
+    """
+    Search logs using MCP client.
+    """
+    mcp_client = get_mcp_client()
+    if not mcp_client:
+        return {
+            "success": False,
+            "error": "MCP client not available. Please check MCP server connection."
+        }
+
+    try:
+        # Convert timestamps to ISO format if provided
+        start_time = None
+        end_time = None
+
+        if start_ts and end_ts:
+            from datetime import datetime
+            start_time = datetime.fromtimestamp(start_ts).isoformat() + "Z"
+            end_time = datetime.fromtimestamp(end_ts).isoformat() + "Z"
+
+        params = {"search_terms": search_terms}
+        if namespace:
+            params["namespace"] = namespace
+        if service_name:
+            params["service_name"] = service_name
+        if log_level:
+            params["log_level"] = log_level
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
+
+        logger.debug(f"Calling search_logs_tool with params: {params}")
+
+        result = mcp_client.call_tool_sync("search_logs_tool", params)
+
+        logger.debug(f"search_logs_tool result: {result}")
+
+        if result and len(result) > 0 and "text" in result[0]:
+            return {
+                "success": True,
+                "results": result[0]["text"],
+                "tool": "search_logs_tool"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No results returned from log search tool"
+            }
+
+    except Exception as e:
+        logger.error(f"Error calling search_logs_tool: {e}")
+        return {
+            "success": False,
+            "error": f"Error calling log search tool: {str(e)}"
+        }
+
+
 def chat_tempo_mcp(question: str) -> Dict[str, Any]:
     """
     Chat with Tempo traces using MCP tools.
-    
+
     Args:
         question: Natural language question about traces (time range extracted automatically)
-    
+
     Returns:
         Tempo chat analysis results
     """
     try:
         logger.debug(f"Chatting with Tempo: {question}")
         logger.debug(f"Calling chat_tempo_tool with question: {question}")
-        
+
         result = mcp_client.call_tool_sync("chat_tempo_tool", {
             "question": question
         })
-        
+
         logger.debug(f"chat_tempo_tool result: {result}")
-        
+
         logger.debug("Tempo chat completed successfully")
         return {
             "status": "success",
             "data": result,
             "question": question
         }
-        
+
     except Exception as e:
         logger.error(f"Tempo chat MCP call failed: {e}")
         return {
@@ -996,7 +1165,7 @@ def chat_openshift_mcp(
                 "error_details": err,
             }
         response_text = extract_text_from_mcp_result(result) or ""
-        
+
         # Parse the JSON response
         try:
             return json.loads(response_text)
@@ -1011,7 +1180,7 @@ def chat_openshift_mcp(
                 }
             logger.error(f"Failed to parse chat_openshift response as JSON: {response_text}")
             return {"summary": response_text, "promql": ""}
-            
+
     except requests.exceptions.ConnectionError as e:
         logger.error(f"MCP connection error during chat_openshift: {e}")
         return {
@@ -1049,7 +1218,7 @@ def chat_openshift_mcp(
 
 def get_vllm_metrics_mcp() -> Dict[str, str]:
     """Get available vLLM metrics from MCP server.
-    
+
     Returns:
         Dictionary mapping friendly metric names to PromQL queries
     """
@@ -1060,19 +1229,19 @@ def get_vllm_metrics_mcp() -> Dict[str, str]:
             st.sidebar.error("🌐 **CONNECTION_ERROR**: MCP server is not available")
             st.sidebar.info("💡 **How to fix**: Check if the MCP server is running")
             return {}
-        
+
         result = mcp_client.call_tool_sync("get_vllm_metrics_tool", {})
         logger.debug(f"MCP get_vllm_metrics_tool returned: {type(result)}, content: {result}")
-        
+
         error_details = parse_mcp_error(result)
         if error_details:
             display_mcp_error(error_details)
             return {}
-        
+
         response_text = extract_text_from_mcp_result(result)
         if response_text:
             logger.debug(f"Extracted response_text length: {len(response_text)}")
-            
+
             # Parse the formatted text response to extract metrics
             metrics_dict = parse_vllm_metrics_text(response_text)
             logger.debug(f"Parsed {len(metrics_dict)} vLLM metrics")
@@ -1080,10 +1249,10 @@ def get_vllm_metrics_mcp() -> Dict[str, str]:
         else:
             logger.error(f"Failed to extract text from MCP response: {result}")
             return {}
-        
+
         logger.debug("No valid result from MCP get_vllm_metrics_tool")
         return {}
-        
+
     except Exception as e:
         import traceback
         logger.error(f"Error getting vLLM metrics via MCP: {e}")
@@ -1094,35 +1263,35 @@ def get_vllm_metrics_mcp() -> Dict[str, str]:
 
 def parse_vllm_metrics_text(response_text: str) -> Dict[str, str]:
     """Parse the vLLM metrics response text to extract metric mappings.
-    
+
     Args:
         response_text: Formatted text response from get_vllm_metrics_tool
-        
+
     Returns:
         Dictionary mapping friendly names to PromQL queries
     """
     try:
         metrics_dict = {}
         lines = response_text.split('\n')
-        
+
         current_metric = None
         for line in lines:
             line = line.strip()
-            
+
             # Look for metric lines starting with bullet point
             if line.startswith('• ') and ' Query: ' not in line:
                 # This is a metric name line
                 current_metric = line[2:].strip()  # Remove the bullet
-                
+
             elif line.startswith('Query: `') and line.endswith('`') and current_metric:
                 # This is the query line for the current metric
                 query = line[8:-1]  # Remove 'Query: `' and trailing '`'
                 metrics_dict[current_metric] = query
                 current_metric = None
-                
+
         logger.debug(f"Parsed {len(metrics_dict)} metrics from response text")
         return metrics_dict
-        
+
     except Exception as e:
         logger.error(f"Error parsing vLLM metrics text: {e}")
         return {}
@@ -1175,7 +1344,7 @@ def chat_vllm_mcp(
                 except json.JSONDecodeError:
                     pass  # Keep original response_text
             return {"response": response_text}
-        
+
         logger.warning("No response from MCP chat_vllm tool")
         return {"error": "No response from MCP chat_vllm tool", "error_type": "mcp_structured"}
 

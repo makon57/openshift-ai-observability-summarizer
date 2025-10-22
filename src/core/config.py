@@ -55,13 +55,14 @@ def get_ca_verify_setting():
 # Main configuration settings
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 TEMPO_URL = os.getenv("TEMPO_URL", "http://localhost:8080")
+LOKI_URL = os.getenv("LOKI_URL", "https://logging-loki-gateway.observability-hub.svc.cluster.local:8080")
 LLAMA_STACK_URL = os.getenv("LLAMA_STACK_URL", "http://localhost:8321/v1/openai/v1")
 LLM_API_TOKEN = os.getenv("LLM_API_TOKEN", "")
 
 # Load complex configurations
 MODEL_CONFIG = load_model_config()
 THANOS_TOKEN = load_thanos_token()
-VERIFY_SSL = get_ca_verify_setting() 
+VERIFY_SSL = get_ca_verify_setting()
 
 # Common constants
 # Chat scope values used across the codebase
