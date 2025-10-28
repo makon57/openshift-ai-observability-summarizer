@@ -46,9 +46,12 @@ This Helm chart contains the **production-tested configuration** that successful
 
 ### Prerequisites
 
-1. **OpenShift Logging Operator** installed and configured
-2. **Shared MinIO instance** running in `observability-hub` namespace
-3. **Sufficient storage** - recommend 100GB+ for MinIO
+All prerequisites are automatically installed by the `make install` command:
+
+1. **OpenShift Logging Operator** - Provides log collection infrastructure (auto-installed)
+2. **Loki Operator** - Provides LokiStack CRD (auto-installed)
+3. **Shared MinIO instance** - Object storage backend (auto-installed)
+4. **Sufficient storage** - recommend 100GB+ for MinIO
 
 **Note**: Collector service account and RBAC are now automatically created by the Helm chart.
 
@@ -63,31 +66,43 @@ This Helm chart contains the **production-tested configuration** that successful
 
 **No manual RBAC setup required** - the chart handles everything automatically!
 
-### Step 1: Verify Prerequisites
+### Automated Installation (Recommended)
+
+The easiest way to install Loki is using the integrated Makefile:
 
 ```bash
-# Check OpenShift Logging Operator
-oc get csv -n openshift-logging | grep logging
+# Install complete observability stack (including Loki)
+make install NAMESPACE=your-namespace
 
-# Check MinIO instance
-oc get pods -n observability-hub | grep minio
-
-# Check collector service account (will be created by Helm chart)
-oc get sa collector -n openshift-logging
-
-# Check storage availability
-kubectl exec -n observability-hub minio-observability-storage-0 -- df -h | grep "/data"
+# This automatically installs:
+# - All required operators (Logging + Loki + Tempo + OpenTelemetry + Cluster Observability)
+# - MinIO storage backend with loki bucket
+# - TempoStack for traces
+# - LokiStack for logs
+# - OpenTelemetry Collector
+# - Collector service account and RBAC
+# - ClusterLogForwarder for log collection
+# - MCP server with log query access
 ```
 
-### Step 2: Deploy Loki Stack
+The installation is **fully idempotent** - running `make install` multiple times is safe and will skip already-installed components.
+
+### Manual Installation (Advanced)
+
+If you need to install Loki separately:
 
 ```bash
-# Deploy the complete Loki stack (includes LokiStack, RBAC, and log forwarding)
-helm install loki-stack deploy/helm/observability/loki \
-  --namespace observability-hub \
-  --create-namespace
+# 1. Install operators first
+make install-logging-operator
+make install-loki-operator
 
-# The chart automatically creates:
+# 2. Install MinIO (if not already installed)
+make install-minio
+
+# 3. Install LokiStack
+make install-loki
+
+# The Helm chart automatically creates:
 # - LokiStack instance with MinIO storage
 # - Collector service account and RBAC in openshift-logging namespace
 # - ClusterLogForwarder for log collection
@@ -98,7 +113,7 @@ helm install loki-stack deploy/helm/observability/loki \
 kubectl wait --for=condition=Ready lokistack/logging-loki -n observability-hub --timeout=600s
 ```
 
-### Step 3: Verify Deployment
+### Verify Deployment
 
 ```bash
 # Check all Loki pods are running (should see 8 pods)
@@ -114,7 +129,7 @@ kubectl get clusterlogforwarder logging-loki-forwarder -n openshift-logging
 kubectl get pods -n openshift-logging | grep forwarder
 ```
 
-### Step 4: Monitor Storage Usage
+### Monitor Storage Usage
 
 ```bash
 # Check MinIO storage usage (should be < 80%)
@@ -122,6 +137,9 @@ kubectl exec -n observability-hub minio-observability-storage-0 -- df -h | grep 
 
 # Monitor ingester status
 kubectl get pods -n observability-hub | grep ingester
+
+# Check for configuration drift (recommended after install)
+make check-observability-drift
 ```
 
 ## 🔧 Configuration Options
@@ -425,6 +443,83 @@ The complete Loki stack now includes these templates:
 
 ---
 
-**Last Updated**: October 22, 2025
-**Configuration Version**: v2.1 (Complete Helm Chart)
-**Tested Environment**: OpenShift 4.x with OpenShift Logging 5.x
+## 🔧 Makefile Commands Reference
+
+The following Makefile targets are available for Loki management:
+
+### Installation
+
+```bash
+# Install complete stack (recommended)
+make install NAMESPACE=your-namespace
+
+# Install only Loki operators
+make install-logging-operator
+make install-loki-operator
+
+# Install only LokiStack (operators must be installed first)
+make install-loki
+
+# Check if all operators are installed
+make check-operators
+```
+
+### Maintenance
+
+```bash
+# Check for configuration drift
+make check-observability-drift
+
+# Force upgrade Loki configuration
+make upgrade-observability
+
+# Check Loki status
+helm list -n observability-hub | grep loki
+```
+
+### Uninstallation
+
+```bash
+# Uninstall only LokiStack (preserves operators and MinIO data)
+make uninstall-loki
+
+# Uninstall LokiStack + operators (requires confirmation flag)
+make uninstall NAMESPACE=your-namespace UNINSTALL_OPERATORS=true
+
+# Uninstall everything including MinIO (requires confirmation flag)
+make uninstall NAMESPACE=your-namespace UNINSTALL_OBSERVABILITY=true UNINSTALL_OPERATORS=true
+```
+
+### Configuration
+
+```bash
+# Customize MinIO credentials (before install)
+make install NAMESPACE=your-namespace MINIO_USER=custom-user MINIO_PASSWORD=custom-pass
+
+# Customize MinIO buckets
+make install NAMESPACE=your-namespace MINIO_BUCKETS=tempo,loki,custom
+```
+
+### Edge Cases
+
+**If Loki is already installed:**
+
+- `make install-loki` is idempotent and will skip if already exists
+- To update configuration, use `make upgrade-observability`
+
+**If configuration needs to change:**
+
+- Edit `deploy/helm/observability/loki/values.yaml`
+- Run `make upgrade-observability` to apply changes
+
+**If operators are missing:**
+
+- Run `make check-operators` to verify operator status
+- Install missing operators individually or run `make install-operators`
+
+---
+
+**Last Updated**: October 28, 2025
+**Configuration Version**: v2.1 (Complete Helm Chart with Makefile Integration)
+**Tested Environment**: OpenShift 4.x with OpenShift Logging 5.x and Loki Operator
+**Integration**: Fully integrated with `make install` workflow
