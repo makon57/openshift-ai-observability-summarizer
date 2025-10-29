@@ -11,7 +11,7 @@ fullnameOverride: ""
 
 # Global configuration
 global:
-  namespace: observability-hub
+  namespace: openshift-logging
 
 # LokiStack configuration
 lokiStack:
@@ -85,14 +85,14 @@ minio:
 uiPlugin:
   # Enable the UIPlugin resource to show "Observe → Logs" in OpenShift Console
   enabled: true
-  name: logging-console
+  name: logging
   logging:
     # Timeout for log queries in the console
     timeout: 30s
     # Reference to the LokiStack for the console plugin
     lokiStack:
       name: logging-loki
-      namespace: observability-hub
+      namespace: openshift-logging
 
 # RBAC configuration
 rbac:
@@ -101,7 +101,8 @@ rbac:
   # Collector service account and RBAC setup
   collector:
     # Set to true to create collector SA and RBAC (required for new deployments)
-    # Set to false if collector SA already exists
+    # Set to false if collector SA already exists (e.g., managed by OpenShift Logging Operator)
+    # NOTE: The Makefile automatically detects this and sets the appropriate value
     create: true
     serviceAccount:
       name: collector
@@ -159,7 +160,7 @@ clusterLogging:
     # Target LokiStack configuration
     target:
       name: logging-loki
-      namespace: observability-hub
+      namespace: openshift-logging
 
     # TLS configuration for secure communication
     tls:
@@ -211,7 +212,7 @@ externalAccess:
 
   # Loki gateway connection details
   loki:
-    url: "https://logging-loki-gateway-http.observability-hub.svc.cluster.local:8080"
+    url: "https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080"
     # Tenant-specific API paths for multi-tenant queries
     tenantPaths:
       application: "/api/logs/v1/application/loki/api/v1"

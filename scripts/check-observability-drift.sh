@@ -1,14 +1,18 @@
 #!/bin/bash
 
-# Check for configuration drift in observability-hub namespace
+# Check for configuration drift in observability components
 # This script detects issues like deprecated configuration fields
+# Checks observability-hub namespace for Tempo/OTEL and openshift-logging for Loki
 
 set -e
 
 OBSERVABILITY_NAMESPACE=${1:-observability-hub}
+LOKI_NAMESPACE=${2:-openshift-logging}
 
 echo ""
-echo "→ Checking for configuration drift in $OBSERVABILITY_NAMESPACE namespace"
+echo "→ Checking for configuration drift in observability components"
+echo "  Observability namespace: $OBSERVABILITY_NAMESPACE (Tempo, OTEL)"
+echo "  Loki namespace: $LOKI_NAMESPACE"
 echo ""
 
 DRIFT_DETECTED=0
@@ -47,18 +51,18 @@ fi
 # Check LokiStack
 echo ""
 echo "  🔍 Checking LokiStack..."
-if helm list -n $OBSERVABILITY_NAMESPACE | grep -q "^loki-stack\s"; then
-    LOKI_REVISION=$(helm list -n $OBSERVABILITY_NAMESPACE | grep "^loki-stack\s" | awk '{print $2}')
-    echo "  📊 LokiStack: Revision $LOKI_REVISION"
+if helm list -n $LOKI_NAMESPACE | grep -q "^loki-stack\s"; then
+    LOKI_REVISION=$(helm list -n $LOKI_NAMESPACE | grep "^loki-stack\s" | awk '{print $2}')
+    echo "  📊 LokiStack: Revision $LOKI_REVISION (in namespace $LOKI_NAMESPACE)"
 
     # Check if LokiStack resource exists
-    if oc get lokistack logging-loki -n $OBSERVABILITY_NAMESPACE >/dev/null 2>&1; then
-        LOKI_CONDITION=$(oc get lokistack logging-loki -n $OBSERVABILITY_NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+    if oc get lokistack logging-loki -n $LOKI_NAMESPACE >/dev/null 2>&1; then
+        LOKI_CONDITION=$(oc get lokistack logging-loki -n $LOKI_NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
         if [ "$LOKI_CONDITION" = "True" ]; then
             echo "  ✅ LokiStack: Ready and operational"
         else
             echo "  ⚠️  LokiStack: Exists but not Ready"
-            echo "     → Check pod status: oc get pods -n $OBSERVABILITY_NAMESPACE | grep loki"
+            echo "     → Check pod status: oc get pods -n $LOKI_NAMESPACE | grep loki"
             DRIFT_DETECTED=1
         fi
     else

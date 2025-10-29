@@ -9,6 +9,7 @@ source "$SCRIPT_DIR/common.sh"
 # Configuration
 PROMETHEUS_NAMESPACE="openshift-monitoring"
 OBSERVABILITY_NAMESPACE="observability-hub"
+LOKI_NAMESPACE="openshift-logging"
 THANOS_PORT=9090
 TEMPO_PORT=8082
 LOKI_PORT=3100
@@ -179,11 +180,11 @@ start_port_forwards() {
     create_port_forward "$TEMPO_SERVICE" "$TEMPO_PORT" "8080" "$OBSERVABILITY_NAMESPACE" "Tempo" "🔍"
 
     # Find Loki gateway service (optional - only if LokiStack is installed)
-    LOKI_SERVICE=$(oc get services -n "$OBSERVABILITY_NAMESPACE" -o name -l 'app.kubernetes.io/name=loki,app.kubernetes.io/component=gateway' 2>/dev/null)
+    LOKI_SERVICE=$(oc get services -n "$LOKI_NAMESPACE" -o name -l 'app.kubernetes.io/name=loki,app.kubernetes.io/component=gateway' 2>/dev/null)
     if [ -n "$LOKI_SERVICE" ]; then
-        create_port_forward "$LOKI_SERVICE" "$LOKI_PORT" "8080" "$OBSERVABILITY_NAMESPACE" "Loki" "📋"
+        create_port_forward "$LOKI_SERVICE" "$LOKI_PORT" "8080" "$LOKI_NAMESPACE" "Loki" "📋"
     else
-        echo -e "${YELLOW}⚠️  Loki gateway service NOT found in $OBSERVABILITY_NAMESPACE namespace (optional - skipping)${NC}"
+        echo -e "${YELLOW}⚠️  Loki gateway service NOT found in $LOKI_NAMESPACE namespace (optional - skipping)${NC}"
     fi
 
     sleep 3  # Give port-forwards time to establish

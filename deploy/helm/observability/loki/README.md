@@ -12,7 +12,7 @@ This Helm chart contains the **production-tested configuration** that successful
 
 - **Size**: `1x.small`
 - **Ingester Replicas**: `2` (CRITICAL - prevents ring coordination issues)
-- **Storage**: Shared MinIO instance in `observability-hub` namespace
+- **Storage**: Shared MinIO instance in `observability-hub` namespace (cross-namespace access from `openshift-logging`)
 - **Schema Version**: `v13` (updated from v12)
 
 ### Authentication & Security
@@ -36,7 +36,7 @@ This Helm chart contains the **production-tested configuration** that successful
 
 ### External Access for Log Queries
 
-- **Loki URL**: `https://logging-loki-gateway-http.observability-hub.svc.cluster.local:8080`
+- **Loki URL**: `https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080`
 - **Tenant Paths**: `/api/logs/v1/{tenant}/loki/api/v1/`
 - **Authentication**: Uses `collector-token` from `openshift-logging` namespace
 - **Use Case**: External services like Korrel8 can query logs by mounting the collector token
@@ -52,17 +52,22 @@ All prerequisites are automatically installed by the `make install` command:
 3. **Shared MinIO instance** - Object storage backend (auto-installed)
 4. **Sufficient storage** - recommend 100GB+ for MinIO
 
-**Note**: Collector service account and RBAC are now automatically created by the Helm chart.
+**Note**: Collector service account and RBAC are intelligently managed by the Makefile and Helm chart.
 
-### OpenShift Logging Setup (Automated by Helm Chart)
+### OpenShift Logging Setup (Intelligently Automated)
 
-**✅ NEW**: The Helm chart now automatically creates all necessary RBAC components, including:
+**✅ SMART DETECTION**: The Makefile automatically detects if the `collector` ServiceAccount already exists:
 
-- **Collector Service Account** in `openshift-logging` namespace
+- **If collector SA exists** (e.g., managed by OpenShift Logging Operator) → **Reuses existing SA**
+- **If collector SA doesn't exist** → **Creates it automatically with proper RBAC**
+
+The Helm chart creates all necessary RBAC components when needed:
+
+- **Collector Service Account** in `openshift-logging` namespace (if not present)
 - **ClusterRoles** for log collection permissions
 - **ClusterRoleBindings** for proper access
 
-**No manual RBAC setup required** - the chart handles everything automatically!
+**No manual intervention required** - the installation is intelligent and handles both fresh installs and existing logging setups!
 
 ### Automated Installation (Recommended)
 
@@ -106,17 +111,17 @@ make install-loki
 # - MinIO credentials secret
 
 # Wait for LokiStack to be ready
-kubectl wait --for=condition=Ready lokistack/logging-loki -n observability-hub --timeout=600s
+kubectl wait --for=condition=Ready lokistack/logging-loki -n openshift-logging --timeout=600s
 ```
 
 ### Verify Deployment
 
 ```bash
 # Check all Loki pods are running (should see 8 pods)
-kubectl get pods -n observability-hub | grep loki
+kubectl get pods -n openshift-logging | grep loki
 
 # Verify LokiStack status
-kubectl get lokistack logging-loki -n observability-hub
+kubectl get lokistack logging-loki -n openshift-logging
 
 # Check ClusterLogForwarder status
 kubectl get clusterlogforwarder logging-loki-forwarder -n openshift-logging
@@ -132,7 +137,7 @@ kubectl get pods -n openshift-logging | grep forwarder
 kubectl exec -n observability-hub minio-observability-storage-0 -- df -h | grep "/data"
 
 # Monitor ingester status
-kubectl get pods -n observability-hub | grep ingester
+kubectl get pods -n openshift-logging | grep ingester
 
 # Check for configuration drift (recommended after install)
 make check-observability-drift
@@ -246,7 +251,7 @@ volumeMounts:
 kubectl exec -n observability-hub minio-observability-storage-0 -- df -h
 
 # Check for failed pods
-kubectl get pods -n observability-hub | grep -v Running
+kubectl get pods -n openshift-logging | grep -v Running
 
 # Verify log collection status
 kubectl get clusterlogforwarder -n openshift-logging -o yaml | grep -A 5 "conditions:"
@@ -323,10 +328,10 @@ lokiStack:
 
 ```bash
 # If ingester stuck on recovery, check WAL size
-kubectl exec logging-loki-ingester-X -n observability-hub -- du -sh /tmp/wal
+kubectl exec logging-loki-ingester-X -n openshift-logging -- du -sh /tmp/wal
 
 # If > 10GB, consider clearing WAL PVC
-kubectl delete pvc wal-logging-loki-ingester-X -n observability-hub
+kubectl delete pvc wal-logging-loki-ingester-X -n openshift-logging
 ```
 
 ### Issue 4: Namespace Filtering Complexity
@@ -387,7 +392,7 @@ inputs:
 **Solution**: Restart compactor pod to trigger immediate cleanup without waiting period.
 
 ```bash
-kubectl delete pod logging-loki-compactor-0 -n observability-hub
+kubectl delete pod logging-loki-compactor-0 -n openshift-logging
 ```
 
 ## 🔍 Troubleshooting Guide
@@ -409,13 +414,13 @@ kubectl patch clusterlogforwarder logging-loki-forwarder -n openshift-logging --
 
 ```bash
 # Check ingester readiness
-kubectl exec logging-loki-ingester-X -n observability-hub -- curl -k -s https://localhost:3101/ready
+kubectl exec logging-loki-ingester-X -n openshift-logging -- curl -k -s https://localhost:3101/ready
 
 # If stuck on recovery, check WAL size
-kubectl exec logging-loki-ingester-X -n observability-hub -- du -sh /tmp/wal
+kubectl exec logging-loki-ingester-X -n openshift-logging -- du -sh /tmp/wal
 
 # Force restart if needed
-kubectl delete pod logging-loki-ingester-X -n observability-hub
+kubectl delete pod logging-loki-ingester-X -n openshift-logging
 ```
 
 ### Log Collection Issues
@@ -437,7 +442,7 @@ kubectl auth can-i get nodes --as=system:serviceaccount:openshift-logging:collec
 
 # If collector SA missing, redeploy the Helm chart:
 helm upgrade loki-stack deploy/helm/observability/loki \
-  --namespace observability-hub \
+  --namespace openshift-logging \
   --set rbac.collector.create=true
 
 # The chart will automatically create all necessary RBAC components
@@ -517,7 +522,7 @@ make check-observability-drift
 make upgrade-observability
 
 # Check Loki status
-helm list -n observability-hub | grep loki
+helm list -n openshift-logging | grep loki
 ```
 
 ### Uninstallation

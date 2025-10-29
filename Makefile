@@ -3,7 +3,7 @@
 
 # NAMESPACE validation for deployment targets
 ifeq ($(NAMESPACE),)
-ifeq (,$(filter install-local depend install-ingestion-pipeline list-models% generate-model-config help build build-ui build-alerting build-mcp-server push push-ui push-alerting push-mcp-server clean config test check-observability-drift install-operators uninstall-operators check-operators install-cluster-observability-operator install-opentelemetry-operator install-tempo-operator uninstall-cluster-observability-operator uninstall-opentelemetry-operator uninstall-tempo-operator enable-tracing-ui disable-tracing-ui,$(MAKECMDGOALS)))
+ifeq (,$(filter install-local depend install-ingestion-pipeline list-models% generate-model-config help build build-ui build-alerting build-mcp-server push push-ui push-alerting push-mcp-server clean config test check-observability-drift install-operators uninstall-operators check-operators install-cluster-observability-operator install-opentelemetry-operator install-tempo-operator uninstall-cluster-observability-operator uninstall-opentelemetry-operator uninstall-tempo-operator enable-tracing-ui disable-tracing-ui enable-logging-ui disable-logging-ui install-loki uninstall-loki upgrade-observability,$(MAKECMDGOALS)))
 $(error NAMESPACE is not set)
 endif
 endif
@@ -85,6 +85,7 @@ ALERTING_RELEASE_NAME ?= alerting
 OBSERVABILITY_NAMESPACE ?= observability-hub # currently hard-coded in instrumentation.yaml
 INSTRUMENTATION_PATH ?= observability/otel-collector/scripts/instrumentation.yaml
 MINIO_NAMESPACE ?= observability-hub
+LOKI_NAMESPACE ?= openshift-logging
 
 # LLM URL processing constants
 DEFAULT_LLM_PORT_AND_PATH := :8080/v1
@@ -139,6 +140,18 @@ helm_tempo_args = \
     --set minio.s3.accessKeyId=$(MINIO_USER) \
     --set minio.s3.accessKeySecret=$(MINIO_PASSWORD) \
     --set minio.s3.bucket=tempo
+
+# Shell snippet to check if collector SA exists and determine rbac.collector.create value
+# Returns "false" if SA exists, "true" if it doesn't
+# Usage: COLLECTOR_CREATE=$$($(check_collector_sa_and_get_flag))
+check_collector_sa_and_get_flag = \
+	if oc get serviceaccount collector -n $(LOKI_NAMESPACE) >/dev/null 2>&1; then \
+		echo "  → Collector ServiceAccount already exists in $(LOKI_NAMESPACE), will not recreate" >&2; \
+		echo "false"; \
+	else \
+		echo "  → Collector ServiceAccount does not exist, will be created" >&2; \
+		echo "true"; \
+	fi
 
 helm_loki_args = \
     --set minio.s3.accessKeyId=$(MINIO_USER) \
@@ -202,6 +215,8 @@ help:
 	@echo "  remove-tracing - Disable auto-instrumentation for tracing in target namespace"
 	@echo "  enable-tracing-ui - Enable 'Observe → Traces' menu in OpenShift Console"
 	@echo "  disable-tracing-ui - Disable 'Observe → Traces' menu in OpenShift Console"
+	@echo "  enable-logging-ui - Enable 'Observe → Logs' menu in OpenShift Console"
+	@echo "  disable-logging-ui - Disable 'Observe → Logs' menu in OpenShift Console"
 	@echo "  install-minio - Install MinIO observability storage backend only"
 	@echo "  uninstall-minio - Uninstall MinIO observability storage backend only"
 	@echo "  install-loki - Install LokiStack for centralized log aggregation (idempotent)"
@@ -786,16 +801,18 @@ disable-logging-ui:
 
 .PHONY: uninstall-observability
 uninstall-observability:
-	@echo "Uninstalling TempoStack, LokiStack, and Otel Collector in namespace $(OBSERVABILITY_NAMESPACE)"
+	@echo "Uninstalling TempoStack and Otel Collector in namespace $(OBSERVABILITY_NAMESPACE)"
 	@helm uninstall tempo -n $(OBSERVABILITY_NAMESPACE) --ignore-not-found
-	@helm uninstall loki-stack -n $(OBSERVABILITY_NAMESPACE) --ignore-not-found
 	@helm uninstall otel-collector -n $(OBSERVABILITY_NAMESPACE) --ignore-not-found
 
 	@echo "Removing TempoStack PVCs from $(OBSERVABILITY_NAMESPACE)"
 	- @oc delete pvc -n $(OBSERVABILITY_NAMESPACE) -l app.kubernetes.io/name=tempo --timeout=30s ||:
 
-	@echo "Removing LokiStack PVCs from $(OBSERVABILITY_NAMESPACE)"
-	- @oc delete pvc -n $(OBSERVABILITY_NAMESPACE) -l app.kubernetes.io/name=loki --timeout=30s ||:
+	@echo "Uninstalling LokiStack in namespace $(LOKI_NAMESPACE)"
+	@helm uninstall loki-stack -n $(LOKI_NAMESPACE) --ignore-not-found
+
+	@echo "Removing LokiStack PVCs from $(LOKI_NAMESPACE)"
+	- @oc delete pvc -n $(LOKI_NAMESPACE) -l app.kubernetes.io/name=loki --timeout=30s ||:
 
 .PHONY: uninstall-observability-stack
 uninstall-observability-stack:
@@ -807,6 +824,7 @@ uninstall-observability-stack:
 		echo "  → TempoStack, LokiStack, and OTEL Collector in namespace $(OBSERVABILITY_NAMESPACE)"; \
 		echo "  → MinIO observability storage in namespace $(MINIO_NAMESPACE)"; \
 		echo "  → Distributed Tracing Console Plugin (Observe → Traces menu)"; \
+		echo "  → Logging Console Plugin (Observe → Logs menu)"; \
 		echo ""; \
 		echo "This infrastructure is shared by multiple applications."; \
 		echo ""; \
@@ -814,6 +832,7 @@ uninstall-observability-stack:
 		$(MAKE) uninstall-observability; \
 		$(MAKE) uninstall-minio; \
 		$(MAKE) disable-tracing-ui; \
+		$(MAKE) disable-logging-ui; \
 		echo ""; \
 		echo "✅ Observability stack uninstallation completed!"; \
 	else \
@@ -842,17 +861,19 @@ upgrade-observability:
 		--create-namespace \
 		--set global.namespace=$(OBSERVABILITY_NAMESPACE)
 	@# Force upgrade Loki (without idempotency check for upgrade scenario)
+	@COLLECTOR_CREATE=$$($(check_collector_sa_and_get_flag)); \
 	cd deploy/helm && helm upgrade --install loki-stack ./observability/loki \
-		--namespace $(OBSERVABILITY_NAMESPACE) \
+		--namespace $(LOKI_NAMESPACE) \
 		--create-namespace \
 		--atomic --timeout 15m \
-		--set global.namespace=$(OBSERVABILITY_NAMESPACE) \
+		--set global.namespace=$(LOKI_NAMESPACE) \
+		--set rbac.collector.create=$$COLLECTOR_CREATE \
 		$(helm_loki_args)
 	@echo "✅ Observability components upgraded successfully"
 
 .PHONY: check-observability-drift
 check-observability-drift:
-	@scripts/check-observability-drift.sh $(OBSERVABILITY_NAMESPACE)
+	@scripts/check-observability-drift.sh $(OBSERVABILITY_NAMESPACE) $(LOKI_NAMESPACE)
 
 
 .PHONY: install-minio
@@ -884,27 +905,32 @@ uninstall-minio:
 
 .PHONY: install-loki
 install-loki:
-	@echo "→ Checking if loki-stack already exists in namespace $(OBSERVABILITY_NAMESPACE)"
-	@if helm list -n $(OBSERVABILITY_NAMESPACE) 2>/dev/null | grep -q "^loki-stack\s"; then \
+	@echo "→ Checking if loki-stack already exists in namespace $(LOKI_NAMESPACE)"
+	@if helm list -n $(LOKI_NAMESPACE) 2>/dev/null | grep -q "^loki-stack\s"; then \
 		echo "  → loki-stack already installed, skipping..."; \
 	else \
 		echo "Installing loki-stack helm chart"; \
+		COLLECTOR_CREATE=$$($(check_collector_sa_and_get_flag)); \
 		cd deploy/helm && helm upgrade --install loki-stack observability/loki \
-			--namespace $(OBSERVABILITY_NAMESPACE) \
+			--namespace $(LOKI_NAMESPACE) \
 			--create-namespace \
 			--atomic --timeout 15m \
-			--set global.namespace=$(OBSERVABILITY_NAMESPACE) \
+			--set global.namespace=$(LOKI_NAMESPACE) \
+			--set rbac.collector.create=$$COLLECTOR_CREATE \
 			$(helm_loki_args); \
 		echo "loki-stack installed successfully"; \
 	fi
+	@$(MAKE) enable-logging-ui
 
 .PHONY: uninstall-loki
 uninstall-loki:
-	@echo "Uninstalling loki-stack in namespace $(OBSERVABILITY_NAMESPACE)"
-	@helm -n $(OBSERVABILITY_NAMESPACE) uninstall loki-stack --ignore-not-found
+	@echo "Uninstalling loki-stack in namespace $(LOKI_NAMESPACE)"
+	@helm -n $(LOKI_NAMESPACE) uninstall loki-stack --ignore-not-found
 
-	@echo "Removing LokiStack PVCs from $(OBSERVABILITY_NAMESPACE)"
-	- @oc delete pvc -n $(OBSERVABILITY_NAMESPACE) -l app.kubernetes.io/name=loki --timeout=30s ||:
+	@echo "Removing LokiStack PVCs from $(LOKI_NAMESPACE)"
+	- @oc delete pvc -n $(LOKI_NAMESPACE) -l app.kubernetes.io/name=loki --timeout=30s ||:
+
+	@$(MAKE) disable-logging-ui
 
 # -- Operator Installation targets --
 

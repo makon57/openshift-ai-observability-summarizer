@@ -14,10 +14,11 @@ This document contains comprehensive deployment instructions and troubleshooting
 
 ### Storage Configuration
 
-- **Backend**: MinIO S3-compatible storage
+- **Backend**: MinIO S3-compatible storage (cross-namespace access)
 - **Bucket**: `loki`
 - **Endpoint**: `http://minio-observability-storage.observability-hub.svc.cluster.local:9000`
 - **Storage Class**: `gp3`
+- **Note**: MinIO remains in `observability-hub` namespace, accessed from `openshift-logging` via ClusterIP service
 
 ### Retention Policies (Optimized for Storage)
 
@@ -77,16 +78,23 @@ make install-minio MINIO_BUCKETS=tempo,loki
 ### Step 3: Deploy Loki Stack
 
 ```bash
-# Install complete Loki stack
+# Install complete Loki stack (via Makefile - automatically detects if collector SA exists)
+make install-loki
+
+# OR manually with Helm:
 helm install loki-stack deploy/helm/observability/loki \
-  --namespace observability-hub \
-  --create-namespace \
-  --set rbac.collector.create=true
+  --namespace openshift-logging \
+  --create-namespace
 ```
 
-### Step 4: Set Up Collector Service Account (If Not Using Helm RBAC)
+**Note**: The Makefile automatically detects if the `collector` ServiceAccount already exists in `openshift-logging` and sets `rbac.collector.create` accordingly:
 
-If you set `rbac.collector.create=false`, manually create the collector service account:
+- If collector SA exists (e.g., managed by OpenShift Logging Operator) → skips creation
+- If collector SA doesn't exist → creates it automatically
+
+### Step 4: Manual Collector Service Account Setup (Optional)
+
+If you need to manually manage the collector service account (not using Helm RBAC):
 
 ```bash
 # Create collector service account in openshift-logging
@@ -165,7 +173,7 @@ make enable-logging-ui
 
 ```bash
 # Check all Loki pods (should see 8 running)
-oc get pods -n observability-hub | grep loki
+oc get pods -n openshift-logging | grep loki
 
 # Expected pods:
 # logging-loki-distributor-0        1/1 Running
@@ -178,7 +186,7 @@ oc get pods -n observability-hub | grep loki
 # logging-loki-compactor-0          1/1 Running
 
 # Check LokiStack status
-oc get lokistack logging-loki -n observability-hub
+oc get lokistack logging-loki -n openshift-logging
 
 # Check ClusterLogForwarder
 oc get clusterlogforwarder -n openshift-logging
@@ -190,7 +198,7 @@ oc get pods -n openshift-logging | grep collector
 oc exec -n observability-hub minio-observability-storage-0 -- df -h /data
 
 # Check UIPlugin
-oc get uiplugin logging-console -n observability-hub
+oc get uiplugin logging-console -n openshift-logging
 
 # Verify console plugin is enabled
 oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' | grep logging-console-plugin
@@ -211,7 +219,7 @@ uiPlugin:
     timeout: 30s
     lokiStack:
       name: logging-loki
-      namespace: observability-hub
+      namespace: openshift-logging
 
 # LokiStack sizing and replicas
 lokiStack:
@@ -258,7 +266,7 @@ rbac:
 externalAccess:
   enabled: true
   loki:
-    url: https://logging-loki-gateway-http.observability-hub.svc.cluster.local:8080
+    url: https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080
     tenantPaths:
       application: /api/logs/v1/application/loki/api/v1
       infrastructure: /api/logs/v1/infrastructure/loki/api/v1
@@ -351,17 +359,17 @@ externalAccess:
 
 ```bash
 # Overall LokiStack status
-oc get lokistack logging-loki -n observability-hub -o yaml
+oc get lokistack logging-loki -n openshift-logging -o yaml
 
 # Individual component health
-oc get pods -n observability-hub -l app.kubernetes.io/name=loki
+oc get pods -n openshift-logging -l app.kubernetes.io/name=loki
 
 # Ingester ring status (from any loki pod)
-oc exec -n observability-hub logging-loki-ingester-0 -- \
+oc exec -n openshift-logging logging-loki-ingester-0 -- \
   wget -qO- http://localhost:3100/ring
 
 # Check for stuck ingesters
-oc logs -n observability-hub logging-loki-ingester-0 | grep -i "heartbeat\|ring\|unhealthy"
+oc logs -n openshift-logging logging-loki-ingester-0 | grep -i "heartbeat\|ring\|unhealthy"
 ```
 
 ### Check Log Collection
@@ -388,7 +396,7 @@ oc exec -n observability-hub minio-observability-storage-0 -- \
   ls -la /data/loki/
 
 # Ingester WAL size
-oc exec -n observability-hub logging-loki-ingester-0 -- \
+oc exec -n openshift-logging logging-loki-ingester-0 -- \
   du -sh /tmp/wal
 ```
 
@@ -400,7 +408,7 @@ TOKEN=$(oc get secret collector-token -n openshift-logging -o jsonpath='{.data.t
 
 # Query application logs
 curl -k -H "Authorization: Bearer $TOKEN" \
-  "https://$(oc get route logging-loki-gateway -n observability-hub -o jsonpath='{.spec.host}')/api/logs/v1/application/loki/api/v1/query_range" \
+  "https://$(oc get route logging-loki-gateway -n openshift-logging -o jsonpath='{.spec.host}')/api/logs/v1/application/loki/api/v1/query_range" \
   --data-urlencode 'query={namespace="observability-hub"}' \
   --data-urlencode "start=$(date -u -d '1 hour ago' +%s)000000000" \
   --data-urlencode "end=$(date -u +%s)000000000" \
