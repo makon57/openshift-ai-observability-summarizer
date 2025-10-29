@@ -81,6 +81,19 @@ minio:
     bucket: loki
     endpoint: http://minio-observability-storage.observability-hub.svc.cluster.local:9000
 
+# UI Plugin configuration for OpenShift Console integration
+uiPlugin:
+  # Enable the UIPlugin resource to show "Observe → Logs" in OpenShift Console
+  enabled: true
+  name: logging-console
+  logging:
+    # Timeout for log queries in the console
+    timeout: 30s
+    # Reference to the LokiStack for the console plugin
+    lokiStack:
+      name: logging-loki
+      namespace: observability-hub
+
 # RBAC configuration
 rbac:
   create: true
@@ -191,29 +204,29 @@ clusterLogging:
       infrastructure:
         maxLogsPerSecond: 500
 
-# MCP Server configuration for log querying
-mcpServer:
+# External Access Configuration
+# For external services (e.g., Korrel8) that need to query logs from Loki
+externalAccess:
   enabled: true
 
-  # Token configuration for Loki access
-  tokenAccess:
-    # Use collector token for proper tenant access
-    useCollectorToken: true
-    collectorTokenPath: "/var/run/secrets/loki/collector-token"
-
-    # Service account token mounting
-    serviceAccountToken:
-      enabled: true
-      # Mount collector token from openshift-logging namespace
-      secretName: collector-token
-      secretNamespace: openshift-logging
-      mountPath: "/var/run/secrets/loki"
-
-  # Loki connection configuration
+  # Loki gateway connection details
   loki:
     url: "https://logging-loki-gateway-http.observability-hub.svc.cluster.local:8080"
-    # Use tenant-specific paths for queries
+    # Tenant-specific API paths for multi-tenant queries
     tenantPaths:
       application: "/api/logs/v1/application/loki/api/v1"
       infrastructure: "/api/logs/v1/infrastructure/loki/api/v1"
       audit: "/api/logs/v1/audit/loki/api/v1"
+
+  # Authentication configuration
+  authentication:
+    # Use collector token for proper tenant access
+    useCollectorToken: true
+    collectorTokenPath: "/var/run/secrets/loki/collector-token"
+
+    # Service account configuration for external services
+    # External services should be granted access via RBAC to read the collector token
+    serviceAccount:
+      # Token secret that external services can mount
+      tokenSecretName: "collector-token"
+      tokenSecretNamespace: "openshift-logging"

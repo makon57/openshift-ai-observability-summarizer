@@ -20,7 +20,6 @@ This Helm chart contains the **production-tested configuration** that successful
 - **TLS**: Currently uses `insecureSkipVerify: true` for internal cluster communication
 - **Authentication**: Uses `collector` service account token from `openshift-logging` namespace
 - **RBAC**: Proper ClusterRoles for tenant access (`application`, `infrastructure`, `audit`)
-- **MCP Server Access**: Configured with collector token mounting for log queries
 
 ### Retention Policies (Optimized for Storage)
 
@@ -35,12 +34,12 @@ This Helm chart contains the **production-tested configuration** that successful
 - **Infrastructure Logs**: Filtered to `node` and `container` sources only
 - **Audit Logs**: **DISABLED** due to extreme volume (93GB in 2 days)
 
-### MCP Server Integration
+### External Access for Log Queries
 
 - **Loki URL**: `https://logging-loki-gateway-http.observability-hub.svc.cluster.local:8080`
 - **Tenant Paths**: `/api/logs/v1/{tenant}/loki/api/v1/`
-- **Token Access**: Uses collector token at `/var/run/secrets/loki/collector-token`
-- **Fallback**: Environment variable `LOKI_TOKEN` for local development
+- **Authentication**: Uses `collector-token` from `openshift-logging` namespace
+- **Use Case**: External services like Korrel8 can query logs by mounting the collector token
 
 ## 🚀 Installation Instructions
 
@@ -62,7 +61,6 @@ All prerequisites are automatically installed by the `make install` command:
 - **Collector Service Account** in `openshift-logging` namespace
 - **ClusterRoles** for log collection permissions
 - **ClusterRoleBindings** for proper access
-- **MCP Server RBAC** for log querying
 
 **No manual RBAC setup required** - the chart handles everything automatically!
 
@@ -82,7 +80,6 @@ make install NAMESPACE=your-namespace
 # - OpenTelemetry Collector
 # - Collector service account and RBAC
 # - ClusterLogForwarder for log collection
-# - MCP server with log query access
 ```
 
 The installation is **fully idempotent** - running `make install` multiple times is safe and will skip already-installed components.
@@ -106,7 +103,6 @@ make install-loki
 # - LokiStack instance with MinIO storage
 # - Collector service account and RBAC in openshift-logging namespace
 # - ClusterLogForwarder for log collection
-# - MCP server RBAC for log querying
 # - MinIO credentials secret
 
 # Wait for LokiStack to be ready
@@ -175,6 +171,64 @@ lokiStack:
       retention:
         days: 7 # Increase if you have more storage
 ```
+
+### Enable External Access for Services like Korrel8
+
+The chart includes external access configuration that can be used by services like Korrel8 to query logs:
+
+```yaml
+# In values.yaml
+externalAccess:
+  enabled: true # Set to false if no external services need log access
+```
+
+**To integrate an external service:**
+
+1. **Grant RBAC access** to read the collector token:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-service-loki-access
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["collector-token"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-service-loki-access
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-service-loki-access
+subjects:
+  - kind: ServiceAccount
+    name: your-service-account
+    namespace: your-namespace
+```
+
+2. **Mount the collector token** in your service:
+
+```yaml
+volumes:
+  - name: loki-token
+    secret:
+      secretName: collector-token
+      namespace: openshift-logging
+volumeMounts:
+  - name: loki-token
+    mountPath: /var/run/secrets/loki
+    readOnly: true
+```
+
+3. **Use the configuration** from `values.yaml`:
+   - Loki URL: From `externalAccess.loki.url`
+   - Tenant paths: From `externalAccess.loki.tenantPaths`
+   - Token path: From `externalAccess.authentication.collectorTokenPath`
 
 ## 📊 Monitoring & Maintenance
 
@@ -310,15 +364,6 @@ inputs:
 
 **Solution**: Use `collector` service account token which has proper ClusterRoleBindings for tenant access.
 
-**MCP Server Configuration**:
-
-```python
-# Priority order for token access:
-1. LOKI_TOKEN environment variable (dev)
-2. /var/run/secrets/loki/collector-token (production)
-3. /var/run/secrets/kubernetes.io/serviceaccount/token (fallback)
-```
-
 ### Issue 6: ClusterLogForwarder Validation Failures
 
 **Problem**: ClusterLogForwarder showing validation failures and "collector not ready".
@@ -421,7 +466,6 @@ After implementing all fixes:
 - ✅ **Storage Usage**: Stable at 18% (down from 99%)
 - ✅ **All Loki Components**: 8/8 pods running healthy
 - ✅ **Log Collection**: Both application and infrastructure working
-- ✅ **MCP Integration**: Log queries working for summarization
 - ✅ **System Stability**: No ingester failures for 24+ hours
 - ✅ **Query Performance**: Sub-second response times
 
@@ -438,8 +482,7 @@ The complete Loki stack now includes these templates:
 - **`templates/clusterlogforwarder.yaml`** - Log forwarding configuration
 - **`templates/rbac.yaml`** - Core RBAC for log collection service accounts
 - **`templates/collector-rbac.yaml`** - Collector service account and permissions
-- **`templates/mcp-rbac.yaml`** - MCP server access to collector tokens
-- **`values.yaml`** - Complete configuration with MCP server integration
+- **`values.yaml`** - Complete configuration for log collection, storage, and external access
 
 ---
 

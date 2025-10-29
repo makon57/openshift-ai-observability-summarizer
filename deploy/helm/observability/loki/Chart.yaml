@@ -17,7 +17,6 @@ keywords:
 
 maintainers:
   - name: OpenShift AI Observability Team
-    email: ecosystem-appeng@redhat.com
 
 dependencies: []
 

@@ -756,6 +756,34 @@ disable-tracing-ui:
 		echo "  → Console plugin is not enabled"; \
 	fi
 
+.PHONY: enable-logging-ui
+enable-logging-ui:
+	@echo "→ Enabling logging console plugin for Observe → Logs menu"
+	@if oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null | grep -q "logging-console-plugin"; then \
+		echo "  → Console plugin already enabled"; \
+	else \
+		echo "  → Enabling console plugin..."; \
+		oc patch console.operator.openshift.io cluster --type=json -p='[{"op": "add", "path": "/spec/plugins/-", "value": "logging-console-plugin"}]' 2>/dev/null && \
+		echo "  → Console plugin enabled. The OpenShift Console will refresh automatically." || \
+		echo "  → Note: Console plugin enablement requires cluster-admin permissions. You may need to run this manually."; \
+	fi
+
+.PHONY: disable-logging-ui
+disable-logging-ui:
+	@echo "→ Disabling logging console plugin for Observe → Logs menu"
+	@if oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null | grep -q "logging-console-plugin"; then \
+		PLUGIN_INDEX=$$(oc get console.operator.openshift.io cluster -o json | jq '.spec.plugins | to_entries | .[] | select(.value=="logging-console-plugin") | .key'); \
+		if [ -n "$$PLUGIN_INDEX" ]; then \
+			oc patch console.operator.openshift.io cluster --type=json -p="[{\"op\": \"remove\", \"path\": \"/spec/plugins/$$PLUGIN_INDEX\"}]" 2>/dev/null && \
+			echo "  → Console plugin disabled. The OpenShift Console will refresh automatically." || \
+			echo "  → Note: Console plugin disabling requires cluster-admin permissions. You may need to run this manually."; \
+		else \
+			echo "  → Could not find plugin index"; \
+		fi \
+	else \
+		echo "  → Console plugin is not enabled"; \
+	fi
+
 .PHONY: uninstall-observability
 uninstall-observability:
 	@echo "Uninstalling TempoStack, LokiStack, and Otel Collector in namespace $(OBSERVABILITY_NAMESPACE)"
