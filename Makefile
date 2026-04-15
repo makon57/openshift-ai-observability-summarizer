@@ -487,9 +487,9 @@ namespace:
 depend:
 	@echo "Updating Helm dependencies (for $(RAG_CHART))..."
 	@echo "→ Fetching enhanced llama-stack chart with operator mode support..."
-	@if [ -d deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart ]; then \
+	@if [ -d deploy/helm/$(RAG_CHART)/.llama-stack-operator-repo ]; then \
 		echo "  → Updating existing llama-stack operator chart..."; \
-		cd deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart && git fetch origin operator && git checkout operator && git pull origin operator; \
+		cd deploy/helm/$(RAG_CHART)/.llama-stack-operator-repo && git fetch origin operator && git checkout operator && git pull origin operator; \
 	else \
 		echo "  → Cloning llama-stack operator chart (branch: operator)..."; \
 		git clone --depth 1 --branch operator https://github.com/jianrongzhang89/ai-architecture-charts.git deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart-tmp; \
@@ -497,6 +497,9 @@ depend:
 		cp -r deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart-tmp/llama-stack/helm/* deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart/; \
 		rm -rf deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart-tmp; \
 	fi
+	@echo "  → Creating chart symlink..."
+	@rm -f deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart
+	@ln -sf .llama-stack-operator-repo/llama-stack/helm deploy/helm/$(RAG_CHART)/.llama-stack-operator-chart
 	@echo "  ✅ llama-stack operator chart ready"
 	@rm -rf deploy/helm/$(RAG_CHART)/charts
 	@cd deploy/helm && helm dependency update $(RAG_CHART) || exit 1
@@ -665,7 +668,7 @@ check-llamastack-prerequisites:
 	fi
 
 .PHONY: install-rag
-install-rag: namespace check-llamastack-prerequisites
+install-rag: namespace depend check-llamastack-prerequisites
 	@$(eval LLM_SERVICE_ARGS := $(call helm_llm_service_args))
 	@$(eval LLAMA_STACK_ARGS := $(call helm_llama_stack_args))
 	@$(eval PGVECTOR_ARGS := $(call helm_pgvector_args))
