@@ -44,9 +44,8 @@ minio:
 
 llama-stack:
   enabled: true
-  # Enable pgvector integration (PostgreSQL env vars will be auto-injected by the chart)
-  pgvector:
-    enabled: true
+  # Note: pgvector.enabled=true by default in llama-stack chart
+  # PostgreSQL env vars are automatically injected when pgvector is enabled
   env:
     - name: VLLM_MAX_TOKENS
       value: "4096"
